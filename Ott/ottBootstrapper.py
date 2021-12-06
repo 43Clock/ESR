@@ -56,9 +56,9 @@ class TCPRequestHandler(Thread):
         # Caso inicial em que nada esta connectado
         alias = self.get_alias_by_ip(self.client_address[0])
         if len(self.ottNetwork.keys()) == 0:
-            # self.tcpSocket.send(b"[["Bootstrap"]]")
             self.ottNetwork[alias] = ["Bootstrap"]
             self.ottNetwork["Bootstrap"] = [alias]
+            self.sendUpdate(alias)
         # Caso em que existe so um vizinho conectado
         else:
             shortest = self.graph.getShortestPath(alias, "Bootstrap")
@@ -85,7 +85,7 @@ class TCPRequestHandler(Thread):
         print(self.ottNetwork)
 
     def sendUpdate(self, alias):
-        data = [self.alias[i][0] for i in self.ottNetwork[alias]]
+        data = [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" for i in self.ottNetwork[alias]]
         # Codifica para bytes com cada ip separado por ;
         message = bytes(";".join(data), "utf-8")
         self.connections[alias].sendall(message)
