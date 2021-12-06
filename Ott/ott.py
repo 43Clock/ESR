@@ -18,5 +18,3 @@ if __name__ == "__main__":
             ott.sendConnectionMessage()
     except IndexError:
         print("Not enough arguments")
-    finally:
-        ott.tcpSocket.close()

@@ -4,6 +4,7 @@ import socket as s
 import sys
 import re
 from ottBootstrapper import OttBootstrap
+import atexit
 
 MAX_SIZE = 4096
 
@@ -13,6 +14,7 @@ class OttNode:
         self.bootstrapper = bootstrapper
         self.neighbours = []
         self.tcpSocket = s.socket(s.AF_INET, s.SOCK_STREAM)
+        atexit.register(self.exit_handler)
 
     def updateNeighbours(self, message):
         self.neighbours = message.decode("UTF-8").split(";")
@@ -28,3 +30,8 @@ class OttNode:
             self.updateNeighbours(update)
             print(self.neighbours)
         # self.tcpSocket.close()
+
+    def exit_handler(self):
+        print("Shuting down, message sent")
+        self.tcpSocket.sendall(b"Disconnect")
+        self.tcpSocket.close()

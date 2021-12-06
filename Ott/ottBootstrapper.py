@@ -24,10 +24,15 @@ class TCPRequestHandler(Thread):
         self.client_address = client_address
 
     def run(self):
-        self.lock.acquire()
-        self.connections[self.get_alias_by_ip(self.client_address[0])] = self.connection
-        self.calculateNeighbours()
-        self.lock.release()
+        while True:
+            received = self.connection.recv(MAX_SIZE).decode("UTF-(")
+            self.lock.acquire()
+            self.connections[self.get_alias_by_ip(self.client_address[0])] = self.connection
+            self.calculateNeighbours(received)
+            self.lock.release()
+            # Para de ouvir quando acaba a conecção
+            if received == "Disconnect":
+                break
 
     # Retorna o numero de vizinhos de um ip que se encontram na rede ott
     def check_how_many_neighbour(self):
@@ -51,37 +56,58 @@ class TCPRequestHandler(Thread):
                 if item == ip:
                     return key
 
-
-    def calculateNeighbours(self):
-        # Caso inicial em que nada esta connectado
+    def calculateNeighbours(self, message):
         alias = self.get_alias_by_ip(self.client_address[0])
-        if len(self.ottNetwork.keys()) == 0:
-            self.ottNetwork[alias] = ["Bootstrap"]
-            self.ottNetwork["Bootstrap"] = [alias]
-            self.sendUpdate(alias)
-        # Caso em que existe so um vizinho conectado
-        else:
-            shortest = self.graph.getShortestPath(alias, "Bootstrap")
-            node = None
-            # Diz qual é o nomo mais proximo do bootstrap no caminho entre o ip e o bootstrap
-            for ele in shortest:
-                if ele in self.ottNetwork.keys():
-                    node = ele
-                    break
-            self.ottNetwork[alias] = [node]
-            self.ottNetwork[node].append(alias)
-            neighbours = [item for item in self.ottNetwork[node]]
+        if message == "Connect":
+            # Caso inicial em que nada esta connectado
+            if len(self.ottNetwork.keys()) == 0:
+                self.ottNetwork[alias] = ["Bootstrap"]
+                self.ottNetwork["Bootstrap"] = [alias]
+                self.sendUpdate(alias)
+            # Caso em que existe so um vizinho conectado
+            else:
+                shortest = self.graph.getShortestPath(alias, "Bootstrap")
+                node = None
+                # Diz qual é o nomo mais proximo do bootstrap no caminho entre o ip e o bootstrap
+                for ele in shortest:
+                    if ele in self.ottNetwork.keys():
+                        node = ele
+                        break
+                self.ottNetwork[alias] = [node]
+                self.ottNetwork[node].append(alias)
+                neighbours = [item for item in self.ottNetwork[node]]
+                for neigh in neighbours:
+                    if neigh != alias:
+                        if alias in self.graph.getShortestPath(neigh, "Bootstrap"):
+                            self.ottNetwork[neigh] = [alias if ele == node else ele for ele in self.ottNetwork[neigh]]
+                            self.ottNetwork[node].remove(neigh)
+                            self.ottNetwork[alias].append(neigh)
+                            self.sendUpdate(neigh)
+                self.sendUpdate(alias)
+                # So manda para o node caso este não seja o bootstrap
+                if node != "Bootstrap":
+                    self.sendUpdate(node)
+
+        elif message == "Disconnect" and alias in self.ottNetwork.keys():
+            neighbours = [item for item in self.ottNetwork[alias]]
             for neigh in neighbours:
-                if neigh != alias:
-                    if alias in self.graph.getShortestPath(neigh, "Bootstrap"):
-                        self.ottNetwork[neigh] = [alias if ele == node else ele for ele in self.ottNetwork[neigh]]
-                        self.ottNetwork[node].remove(neigh)
-                        self.ottNetwork[alias].append(neigh)
+                path = self.graph.getShortestPath(neigh, "Bootstrap")
+                if alias in path:
+                    for ele in path[1:]:
+                        if ele in self.ottNetwork.keys() and ele != alias:
+                            self.ottNetwork[neigh].remove(alias)
+                            #self.ottNetwork[ele].remove(alias)
+                            self.ottNetwork[neigh].append(ele)
+                            self.ottNetwork[ele].append(neigh)
+                            if neigh != "Bootstrap":
+                                self.sendUpdate(neigh)
+                            self.sendUpdate(ele)
+                            break
+                else:
+                    self.ottNetwork[neigh].remove(alias)
+                    if neigh != "Bootstrap":
                         self.sendUpdate(neigh)
-            self.sendUpdate(alias)
-            # So manda para o node caso este não seja o bootstrap
-            if node != "Bootstrap":
-                self.sendUpdate(node)
+            self.ottNetwork.pop(alias, None)
         print(self.ottNetwork)
 
     def sendUpdate(self, alias):
@@ -120,6 +146,7 @@ class OttBootstrap:
         self.tcpSocket.listen(0)
         while True:
             connection, client_address = self.tcpSocket.accept()
+            print(client_address)
             worker = TCPRequestHandler(self.connections, self.lock, self.network, self.alias, self.ottNetwork,
                                        self.tcpSocket, self.graph,
                                        connection, client_address)
