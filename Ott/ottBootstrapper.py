@@ -87,7 +87,7 @@ class TCPRequestHandler(Thread):
                 # So manda para o node caso este não seja o bootstrap
                 if node != "Bootstrap":
                     self.sendUpdate(node)
-
+        # @TODO VERIFICAR MELHOR ISTO
         elif message == "Disconnect" and alias in self.ottNetwork.keys():
             neighbours = [item for item in self.ottNetwork[alias]]
             for neigh in neighbours:
@@ -96,7 +96,7 @@ class TCPRequestHandler(Thread):
                     for ele in path[1:]:
                         if ele in self.ottNetwork.keys() and ele != alias:
                             self.ottNetwork[neigh].remove(alias)
-                            #self.ottNetwork[ele].remove(alias)
+                            # self.ottNetwork[ele].remove(alias)
                             self.ottNetwork[neigh].append(ele)
                             self.ottNetwork[ele].append(neigh)
                             if neigh != "Bootstrap":
@@ -111,9 +111,11 @@ class TCPRequestHandler(Thread):
         print(self.ottNetwork)
 
     def sendUpdate(self, alias):
+        path = self.graph.getShortestPath(alias, "Bootstrap")
+        before = list(filter(None, [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" if i in self.ottNetwork[alias] else None for i in path[1:]]))
         data = [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" for i in self.ottNetwork[alias]]
         # Codifica para bytes com cada ip separado por ;
-        message = bytes(";".join(data), "utf-8")
+        message = bytes(";".join(data) + "|" + ";".join([i for i in data if i not in before]), "utf-8")
         self.connections[alias].sendall(message)
 
 

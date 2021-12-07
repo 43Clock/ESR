@@ -13,11 +13,16 @@ class OttNode:
     def __init__(self, bootstrapper):
         self.bootstrapper = bootstrapper
         self.neighbours = []
+        self.forward = []
         self.tcpSocket = s.socket(s.AF_INET, s.SOCK_STREAM)
         atexit.register(self.exit_handler)
 
     def updateNeighbours(self, message):
-        self.neighbours = message.decode("UTF-8").split(";")
+        decoded = message.decode("UTF-8").split("|")
+        self.neighbours = decoded[0].split(";")
+        self.forward = list(filter(lambda x: x != "", decoded[1].split(";")))
+        print("Neighbours: ", self.neighbours)
+        print("Forward: ", self.forward)
 
     def sendConnectionMessage(self):
         server_address = (self.bootstrapper, 8080)
@@ -28,7 +33,6 @@ class OttNode:
         while True:
             update = self.tcpSocket.recv(MAX_SIZE)
             self.updateNeighbours(update)
-            print(self.neighbours)
         # self.tcpSocket.close()
 
     def exit_handler(self):
