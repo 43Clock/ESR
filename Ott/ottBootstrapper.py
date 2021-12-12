@@ -5,14 +5,16 @@ import sys
 import re
 import json
 from graphs import Graph
+import time
 
 MAX_SIZE = 4096
 
 
 class TCPRequestHandler(Thread):
-    def __init__(self, connections, lock: RLock, network, alias, ottNetwork, tcpSocket, graph, connection,
+    def __init__(self, ott, connections, lock: RLock, network, alias, ottNetwork, tcpSocket, graph, connection,
                  client_address):
         Thread.__init__(self)
+        self.ott = ott
         self.connections = connections
         self.lock = lock
         self.network = network
@@ -25,10 +27,13 @@ class TCPRequestHandler(Thread):
 
     def run(self):
         while True:
-            received = self.connection.recv(MAX_SIZE).decode("UTF-(")
+            received = self.connection.recv(MAX_SIZE).decode("UTF-8")
             self.lock.acquire()
             self.connections[self.get_alias_by_ip(self.client_address[0])] = self.connection
-            self.calculateNeighbours(received)
+            if received == "Teste":
+                self.createForwards()
+            else:
+                self.calculateNeighbours(received)
             self.lock.release()
             # Para de ouvir quando acaba a conecção
             if received == "Disconnect":
@@ -87,40 +92,68 @@ class TCPRequestHandler(Thread):
                 # So manda para o node caso este não seja o bootstrap
                 if node != "Bootstrap":
                     self.sendUpdate(node)
-        # @TODO VERIFICAR MELHOR ISTO
+        #@TODO VERIFICAR MELHOR ISTO
         elif message == "Disconnect" and alias in self.ottNetwork.keys():
             neighbours = [item for item in self.ottNetwork[alias]]
             for neigh in neighbours:
                 path = self.graph.getShortestPath(neigh, "Bootstrap")
+                # Caso em que o vizinho esta no caminho mais curto para o Bootstrap
                 if alias in path:
                     for ele in path[1:]:
                         if ele in self.ottNetwork.keys() and ele != alias:
-                            self.ottNetwork[neigh].remove(alias)
-                            # self.ottNetwork[ele].remove(alias)
                             self.ottNetwork[neigh].append(ele)
                             self.ottNetwork[ele].append(neigh)
-                            if neigh != "Bootstrap":
-                                self.sendUpdate(neigh)
-                            self.sendUpdate(ele)
                             break
-                else:
-                    self.ottNetwork[neigh].remove(alias)
-                    if neigh != "Bootstrap":
+                
+                self.ottNetwork[neigh].remove(alias)
+            
+            # Da update a todos os vizinhos do nodo removido    
+            for neigh in neighbours:
+                if neigh != "Bootstrap":
                         self.sendUpdate(neigh)
+                              
             self.ottNetwork.pop(alias, None)
+            self.connections.pop(alias, None)
         print(self.ottNetwork)
 
     def sendUpdate(self, alias):
-        path = self.graph.getShortestPath(alias, "Bootstrap")
-        before = list(filter(None, [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" if i in self.ottNetwork[alias] else None for i in path[1:]]))
+        #path = self.graph.getShortestPath(alias, "Bootstrap")
+        #before = list(filter(None, [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" if i in self.ottNetwork[alias] else None for i in path[1:]]))
         data = [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" for i in self.ottNetwork[alias]]
         # Codifica para bytes com cada ip separado por ;
-        message = bytes(";".join(data) + "|" + ";".join([i for i in data if i not in before]), "utf-8")
+        message = bytes("neighbours|"+";".join(data),"utf-8")
         self.connections[alias].sendall(message)
 
 
+    def createForwards(self):
+        alias = self.get_alias_by_ip(self.client_address[0])
+        caminho = self.graph.getShortestPath("Bootstrap",alias)
+        path = []
+        for ele in caminho:
+            if ele in self.ottNetwork.keys():
+                if ele == "Bootstrap":
+                    path.append(ele)
+                else:
+                    path.append(self.alias[ele][0])
+        print(path)  
+        for i in range(0,len(path)-1):
+            origin = path[i]
+            dest = path[i+1]
+            if origin == "Bootstrap":
+                self.ott.updateForwards(dest)
+            else:
+                self.sendForwardUpdate(origin,dest)
+        time.sleep(1)
+        self.ott.sendHello()
+                
+    def sendForwardUpdate(self, ip, forward):
+        message = bytes("forward|"+forward,"utf-8")
+        self.connections[self.get_alias_by_ip(ip)].sendall(message)
+        
+        
 class OttBootstrap:
-    def __init__(self, file):
+    def __init__(self, file, ott):
+        self.ott = ott
         self.connections = {}
         self.lock = RLock()
         self.network = {}
@@ -149,7 +182,7 @@ class OttBootstrap:
         while True:
             connection, client_address = self.tcpSocket.accept()
             print(client_address)
-            worker = TCPRequestHandler(self.connections, self.lock, self.network, self.alias, self.ottNetwork,
+            worker = TCPRequestHandler(self.ott, self.connections, self.lock, self.network, self.alias, self.ottNetwork,
                                        self.tcpSocket, self.graph,
                                        connection, client_address)
             worker.start()
