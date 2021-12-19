@@ -1,3 +1,4 @@
+import random
 from tkinter import *
 import tkinter.messagebox
 from PIL import Image, ImageTk, ImageFile
@@ -20,7 +21,7 @@ class ClienteGUI:
         self.addr = addr
         self.port = int(port)
         self.rtspSeq = 0
-        self.sessionId = 0
+        self.sessionId = random.randint(0,10000)
         self.requestSent = -1
         self.teardownAcked = 0
         self.openRtpPort()
@@ -62,17 +63,18 @@ class ClienteGUI:
     def setupMovie(self):
         self.tcpSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.tcpSocket.connect((self.server_ip,self.port_tcp))
+        print("Sending")
         self.tcpSocket.sendall(b"Stream")
 
 
     def exitClient(self):
-        """Teardown button handler."""
+        self.tcpSocket.sendall(b"Stop")
+        self.tcpSocket.close()
         self.master.destroy()  # Close the gui window
-        os.remove(CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
+        os.remove(os.path.expanduser('~')+"/"+CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
 
     def pauseMovie(self):
-        """Pause button handler."""
-        print("Not implemented...")
+        self.playEvent.set()
 
     def playMovie(self):
         """Play button handler."""
@@ -85,6 +87,7 @@ class ClienteGUI:
         """Listen for RTP packets."""
         while True:
             try:
+                # Stop listening upon requesting PAUSE or TEARDOWN
                 data = self.rtpSocket.recv(20480)
                 if data:
                     rtpPacket = RtpPacket()
@@ -96,10 +99,10 @@ class ClienteGUI:
                     if currFrameNbr > self.frameNbr:  # Discard the late packet
                         self.frameNbr = currFrameNbr
                         self.updateMovie(self.writeFrame(rtpPacket.getPayload()))
-            except:
-                # Stop listening upon requesting PAUSE or TEARDOWN
-                if self.playEvent.isSet():
+                if self.playEvent.is_set():
                     break
+            except:
+
 
                 self.rtpSocket.shutdown(socket.SHUT_RDWR)
                 self.rtpSocket.close()
@@ -107,7 +110,7 @@ class ClienteGUI:
 
     def writeFrame(self, data):
         """Write the received frame to a temp image file. Return the image file."""
-        cachename = "/home/core/"+CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
+        cachename = os.path.expanduser('~')+"/"+CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
         file = open(cachename, "wb")
         file.write(data)
         file.close()

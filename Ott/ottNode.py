@@ -21,8 +21,11 @@ class OttNode:
         decoded = message.decode("UTF-8").split("|")
         if decoded[0] == "neighbours":
             self.neighbours = decoded[1].split(";")
-        else:
-            self.ott.updateForwards(decoded[1])
+        elif decoded[0] == "forward":
+            self.ott.addForwards(decoded[1])
+        elif decoded[0] == "remove":
+            self.ott.removeForwards(decoded[1])
+
         print("Neighbours: ", self.neighbours)
         print("Forward: ", self.ott.forward)
 

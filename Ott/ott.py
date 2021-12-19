@@ -53,14 +53,15 @@ class Ott():
         sender = UDPSender(self.udpSocket, self.queue, self.forward)
         sender.start()
 
-    def updateForwards(self, fwds):
+    def addForwards(self, fwds):
         if fwds not in self.forward:
             self.forward.append(fwds)
 
-    def sendHello(self):
-        print(self.forward)
-        for ele in self.forward:
-            self.udpSocket.sendto(b"Hello!", (ele, 8888))
+    def removeForwards(self,fwds):
+        print(fwds)
+        if fwds in self.forward:
+            self.forward.remove(fwds)
+            print(self.forward)
 
 
 if __name__ == "__main__":

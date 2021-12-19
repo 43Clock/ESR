@@ -1,3 +1,4 @@
+import atexit
 import sys, socket
 
 from random import randint
@@ -74,13 +75,22 @@ class TCPWorker(threading.Thread):
             if received == "Stream":
                 self.tcpSocket.sendall((bytes("Stream|" + self.client_ip,"utf-8")))
             else:
-                self.tcpSocket.sendall(b"Stop")
+                self.tcpSocket.sendall((bytes("Stop|" + self.client_ip,"utf-8")))
+                break
 
 
 class Servidor:
-    clientInfo = {}
+
+    def __init__(self):
+        self.clientInfo = {}
+        atexit.register(self.closeConnection)
+
+    def closeConnection(self):
+        self.clientInfo["tcpSocket2"].sendall(b"DisconnectStreaming")
+        self.clientInfo["tcpSocket2"].close()
 
     def main(self):
+
         try:
             # Get the media file name
             filename = sys.argv[1]
@@ -109,7 +119,8 @@ class Servidor:
         self.clientInfo["tcpSocket2"].connect((self.clientInfo['Addr'], 8080))
         while True:
             connection, client_address = self.clientInfo["tcpSocket"].accept()
-            TCPWorker(self.clientInfo["tcpSocket2"], connection, client_address[0]).run()
+            worker = TCPWorker(self.clientInfo["tcpSocket2"], connection, client_address[0])
+            worker.start()
 
 
 if __name__ == "__main__":
