@@ -11,10 +11,9 @@ MAX_SIZE = 4096
 
 
 class TCPRequestHandler(Thread):
-    def __init__(self, ott, connections, lock: RLock, network, alias, ottNetwork, tcpSocket, graph, connection,
+    def __init__(self, connections, lock: RLock, network, alias, ottNetwork, tcpSocket, graph, connection,
                  client_address):
         Thread.__init__(self)
-        self.ott = ott
         self.connections = connections
         self.lock = lock
         self.network = network
@@ -30,15 +29,15 @@ class TCPRequestHandler(Thread):
         while True:
             received = self.connection.recv(MAX_SIZE).decode("UTF-8")
             self.lock.acquire()
-            self.connections[self.get_alias_by_ip(self.client_address[0])] = self.connection
             split = received.split("|")
             received = split[0]
+            if received != "Stream":
+                self.connections[self.get_alias_by_ip(self.client_address[0])] = self.connection
 
             if received == "Stream":
                 self.createForwards(split[1])
                 self.streamingTo.add(self.get_alias_by_ip(split[1]))
             elif received == "Stop":
-                print("Remove forwards")
                 self.removeForwards(split[1])
             elif received == "Connect":
                 self.updateNeighbours()
@@ -79,12 +78,10 @@ class TCPRequestHandler(Thread):
         alias = self.get_alias_by_ip(self.client_address[0])
         # Caso inicial em que nada esta connectado
         if len(self.ottNetwork.keys()) == 0:
-            self.ottNetwork[alias] = ["Bootstrap"]
-            self.ottNetwork["Bootstrap"] = [alias]
-            self.sendUpdate(alias)
+            self.ottNetwork[alias] = []
         # Caso em que existe so um vizinho conectado
         else:
-            shortest = self.graph.getShortestPath(alias, "Bootstrap")
+            shortest = self.graph.getShortestPath(alias, "Servidor")
             node = None
             # Diz qual é o nomo mais proximo do bootstrap no caminho entre o ip e o bootstrap
             for ele in shortest:
@@ -96,15 +93,14 @@ class TCPRequestHandler(Thread):
             neighbours = [item for item in self.ottNetwork[node]]
             for neigh in neighbours:
                 if neigh != alias:
-                    if alias in self.graph.getShortestPath(neigh, "Bootstrap"):
+                    if alias in self.graph.getShortestPath(neigh, "Servidor"):
                         self.ottNetwork[neigh] = [alias if ele == node else ele for ele in self.ottNetwork[neigh]]
                         self.ottNetwork[node].remove(neigh)
                         self.ottNetwork[alias].append(neigh)
                         self.sendUpdate(neigh)
             self.sendUpdate(alias)
+            self.sendUpdate(node)
             # So manda para o node caso este não seja o bootstrap
-            if node != "Bootstrap":
-                self.sendUpdate(node)
         print(self.ottNetwork)
 
     # Caso que trata do disconnect de nodos
@@ -112,7 +108,7 @@ class TCPRequestHandler(Thread):
         alias = self.get_alias_by_ip(self.client_address[0])
         neighbours = [item for item in self.ottNetwork[alias]]
         for neigh in neighbours:
-            path = self.graph.getShortestPath(neigh, "Bootstrap")
+            path = self.graph.getShortestPath(neigh, "Servidor")
             # Caso em que o vizinho esta no caminho mais curto para o Bootstrap
             if alias in path:
                 for ele in path[1:]:
@@ -124,8 +120,7 @@ class TCPRequestHandler(Thread):
 
         # Da update a todos os vizinhos do nodo removido
         for neigh in neighbours:
-            if neigh != "Bootstrap":
-                self.sendUpdate(neigh)
+            self.sendUpdate(neigh)
 
         self.ottNetwork.pop(alias, None)
         self.connections.pop(alias, None)
@@ -134,36 +129,30 @@ class TCPRequestHandler(Thread):
     def sendUpdate(self, alias):
         # path = self.graph.getShortestPath(alias, "Bootstrap")
         # before = list(filter(None, [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" if i in self.ottNetwork[alias] else None for i in path[1:]]))
-        data = [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" for i in self.ottNetwork[alias]]
+        data = [self.alias[i][0] for i in self.ottNetwork[alias]]
         # Codifica para bytes com cada ip separado por ;
         message = bytes("neighbours|" + ";".join(data), "utf-8")
         self.connections[alias].sendall(message)
 
     def createForwards(self, ip):
         alias = self.get_alias_by_ip(ip)
-        caminho = self.graph.getShortestPath("Bootstrap", alias)
+        caminho = self.graph.getShortestPath("Servidor", alias)
         path = []
         for ele in caminho:
             if ele in self.ottNetwork.keys():
-                if ele == "Bootstrap":
-                    path.append(ele)
-                else:
-                    path.append(self.alias[ele][0])
+                path.append(ele)
         for i in range(0, len(path) - 1):
             origin = path[i]
             dest = path[i + 1]
-            if origin == "Bootstrap":
-                self.ott.addForwards(dest)
-            else:
-                self.sendForwardUpdate(origin, dest)
+            self.sendForwardUpdate(origin, dest)
 
-    def sendForwardUpdate(self, ip, forward):
-        message = bytes("forward|" + forward, "utf-8")
-        self.connections[self.get_alias_by_ip(ip)].sendall(message)
+    def sendForwardUpdate(self, origin, forward):
+        message = bytes("forward|" + self.alias[forward][0], "utf-8")
+        self.connections[origin].sendall(message)
 
     def removeForwards(self, ip):
         alias = self.get_alias_by_ip(ip)
-        aux = self.graph.getShortestPath("Bootstrap", alias)
+        aux = self.graph.getShortestPath("Servidor", alias)
         removed_path = []
         for ele in aux:
             if ele in self.ottNetwork.keys():
@@ -171,7 +160,7 @@ class TCPRequestHandler(Thread):
         all_other_paths = []
         for ele in self.streamingTo:
             if ele != alias:
-                all_other_paths.append(self.graph.getShortestPath("Bootstrap", ele))
+                all_other_paths.append(self.graph.getShortestPath("Servidor", ele))
         to_remove = []
         # Da flatten à all_other_paths
         for sublist in all_other_paths:
@@ -188,12 +177,7 @@ class TCPRequestHandler(Thread):
         for i in range(n, len(removed_path)):
             dest = removed_path[i]
             origin = removed_path[i - 1]
-            print("Dest: ",dest)
-            print("Origin: ",origin)
-            if origin == "Bootstrap":
-                self.ott.removeForwards(self.alias[dest][0])
-            else:
-                self.removeForwardsUpdate(dest, origin)
+            self.removeForwardsUpdate(dest, origin)
 
     def removeForwardsUpdate(self, dest, origin):
         message = bytes("remove|" + self.alias[dest][0], "utf-8")
@@ -201,8 +185,7 @@ class TCPRequestHandler(Thread):
 
 
 class OttBootstrap:
-    def __init__(self, file, ott):
-        self.ott = ott
+    def __init__(self, file):
         self.connections = {}
         self.lock = RLock()
         self.network = {}
@@ -222,6 +205,7 @@ class OttBootstrap:
                 self.network = data["connections"]
                 self.alias = data["alias"]
         except FileNotFoundError:
+            print("Ficheiro não existe")
             return
 
     def listenToTcp(self):
@@ -230,7 +214,15 @@ class OttBootstrap:
         self.tcpSocket.listen(0)
         while True:
             connection, client_address = self.tcpSocket.accept()
-            worker = TCPRequestHandler(self.ott, self.connections, self.lock, self.network, self.alias, self.ottNetwork,
+            worker = TCPRequestHandler(self.connections, self.lock, self.network, self.alias, self.ottNetwork,
                                        self.tcpSocket, self.graph,
                                        connection, client_address)
             worker.start()
+
+
+if __name__ == "__main__":
+    try:
+        bootstrap = OttBootstrap(sys.argv[1])
+        bootstrap.listenToTcp()
+    except IndexError:
+        print("Ficheiro de configuração não recebido!")

@@ -1,20 +1,19 @@
 import atexit
-import sys, socket
-
-from random import randint
-import sys, traceback, threading, socket
-
-from VideoStream import VideoStream
+import socket
+import sys
+import threading
+import traceback
+import re
 from RtpPacket import RtpPacket
+from VideoStream import VideoStream
 
 
 class UDPWorker(threading.Thread):
-    def __init__(self, event, videoStream, rtpPort, rtpAddr, rtpSocket):
+    def __init__(self, event, videoStream, rtpPort, rtpSocket):
         threading.Thread.__init__(self)
         self.event = event
         self.videoStream = videoStream
         self.rtpPort = rtpPort
-        self.rtpAddr = rtpAddr
         self.rtpSocket = rtpSocket
 
     def run(self):
@@ -30,7 +29,7 @@ class UDPWorker(threading.Thread):
             if data:
                 frameNumber = self.videoStream.frameNbr()
                 try:
-                    address = self.rtpAddr
+                    address = socket.gethostbyname("127.0.0.1")
                     port = int(self.rtpPort)
                     packet = self.makeRtp(data, frameNumber)
                     self.rtpSocket.sendto(packet, (address, port))
@@ -78,6 +77,8 @@ class TCPWorker(threading.Thread):
                 self.tcpSocket.sendall((bytes("Stop|" + self.client_ip,"utf-8")))
                 break
 
+def check_if_ip(string):
+    return re.match(r"((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}", string) is not None
 
 class Servidor:
 
@@ -92,8 +93,16 @@ class Servidor:
     def main(self):
 
         try:
+            if check_if_ip(sys.argv[1]):
+                self.clientInfo['Addr'] = sys.argv[1]
+            else:
+                print("IP inválido")
+        except IndexError:
+            print("IP não fornecido!")
+            return
+        try:
             # Get the media file name
-            filename = sys.argv[1]
+            filename = sys.argv[2]
             print("Using provided video file ->  " + filename)
         except:
             print("[Usage: Servidor.py <videofile>]\n")
@@ -104,7 +113,7 @@ class Servidor:
         self.clientInfo['videoStream'] = VideoStream(filename)
         # socket
         self.clientInfo['rtpPort'] = 8888
-        self.clientInfo['Addr'] = socket.gethostbyname('127.0.0.1')
+
         # Create a new socket for RTP/UDP
         self.clientInfo["rtpSocket"] = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.clientInfo["tcpSocket"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -112,8 +121,7 @@ class Servidor:
         self.clientInfo["tcpSocket"].listen(0)
         self.clientInfo['event'] = threading.Event()
         self.clientInfo['worker'] = UDPWorker(self.clientInfo['event'], self.clientInfo['videoStream'],
-                                              self.clientInfo['rtpPort'], self.clientInfo['Addr'],
-                                              self.clientInfo["rtpSocket"])
+                                              self.clientInfo['rtpPort'], self.clientInfo["rtpSocket"])
         self.clientInfo['worker'].start()
         self.clientInfo["tcpSocket2"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.clientInfo["tcpSocket2"].connect((self.clientInfo['Addr'], 8080))

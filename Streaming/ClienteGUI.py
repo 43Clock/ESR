@@ -1,8 +1,9 @@
+import os
 import random
+import socket
+import threading
 from tkinter import *
-import tkinter.messagebox
 from PIL import Image, ImageTk, ImageFile
-import socket, threading, sys, traceback, os
 
 from RtpPacket import RtpPacket
 
@@ -21,7 +22,7 @@ class ClienteGUI:
         self.addr = addr
         self.port = int(port)
         self.rtspSeq = 0
-        self.sessionId = random.randint(0,10000)
+        self.sessionId = random.randint(0, 10000)
         self.requestSent = -1
         self.teardownAcked = 0
         self.openRtpPort()
@@ -62,16 +63,16 @@ class ClienteGUI:
 
     def setupMovie(self):
         self.tcpSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcpSocket.connect((self.server_ip,self.port_tcp))
+        self.tcpSocket.connect((self.server_ip, self.port_tcp))
         print("Sending")
         self.tcpSocket.sendall(b"Stream")
-
 
     def exitClient(self):
         self.tcpSocket.sendall(b"Stop")
         self.tcpSocket.close()
         self.master.destroy()  # Close the gui window
-        os.remove(os.path.expanduser('~')+"/"+CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
+        os.remove(os.path.expanduser('~') + "/" + CACHE_FILE_NAME + str(
+            self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
 
     def pauseMovie(self):
         self.playEvent.set()
@@ -103,14 +104,13 @@ class ClienteGUI:
                     break
             except:
 
-
                 self.rtpSocket.shutdown(socket.SHUT_RDWR)
                 self.rtpSocket.close()
                 break
 
     def writeFrame(self, data):
         """Write the received frame to a temp image file. Return the image file."""
-        cachename = os.path.expanduser('~')+"/"+CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
+        cachename = os.path.expanduser('~') + "/" + CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
         file = open(cachename, "wb")
         file.write(data)
         file.close()
