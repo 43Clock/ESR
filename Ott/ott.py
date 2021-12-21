@@ -55,11 +55,20 @@ class Ott():
     def addForwards(self, fwds):
         if fwds not in self.forward:
             self.forward.append(fwds)
+        print("Forwards: ", self.forward)
 
     def removeForwards(self, fwds):
         if fwds in self.forward:
             self.forward.remove(fwds)
+        print("Forwards: ", self.forward)
 
+    def updateForwards(self,update):
+        split = update.split(";")
+        if split[0] in self.forward:
+            self.forward.remove(split[0])
+        if not split[1] in self.forward:
+            self.forward.append(split[1])
+        print("Forwards: ", self.forward)
 
 class OttNode:
     def __init__(self, bootstrapper):
@@ -71,16 +80,19 @@ class OttNode:
         atexit.register(self.exit_handler)
 
     def update(self, message):
-        decoded = message.decode("UTF-8").split("|")
-        if decoded[0] == "neighbours":
-            self.neighbours = decoded[1].split(";")
-        elif decoded[0] == "forward":
-            self.ott.addForwards(decoded[1])
-        elif decoded[0] == "remove":
-            self.ott.removeForwards(decoded[1])
+        all_updates = message.decode("UTF-8").split(" ")
+        for msg in all_updates:
+            decoded = msg.split("|")
+            if decoded[0] == "neighbours":
+                self.neighbours = decoded[1].split(";")
+            elif decoded[0] == "forward":
+                self.ott.addForwards(decoded[1])
+            elif decoded[0] == "remove":
+                self.ott.removeForwards(decoded[1])
+            elif decoded[0] == "update":
+                self.ott.updateForwards(decoded[1])
 
         print("Neighbours: ", self.neighbours)
-        print("Forward: ", self.ott.forward)
 
     def sendConnectionMessage(self):
         server_address = (self.bootstrapper, 8080)

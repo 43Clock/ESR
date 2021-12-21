@@ -12,7 +12,7 @@ MAX_SIZE = 4096
 
 class TCPRequestHandler(Thread):
     def __init__(self, connections, lock: RLock, network, alias, ottNetwork, tcpSocket, graph, connection,
-                 client_address):
+                 client_address, streamingTo):
         Thread.__init__(self)
         self.connections = connections
         self.lock = lock
@@ -23,7 +23,7 @@ class TCPRequestHandler(Thread):
         self.graph = graph
         self.connection = connection
         self.client_address = client_address
-        self.streamingTo = set()
+        self.streamingTo = streamingTo
 
     def run(self):
         while True:
@@ -31,7 +31,10 @@ class TCPRequestHandler(Thread):
             self.lock.acquire()
             split = received.split("|")
             received = split[0]
-            if received != "Stream":
+
+            # Se nao for nenhuma mensagem que venha do servidor de streaming, atualiza as conexões com os nodos da
+            # rede ott
+            if received not in ["Stream","Stop","DisconnectStreaming"]:
                 self.connections[self.get_alias_by_ip(self.client_address[0])] = self.connection
 
             if received == "Stream":
@@ -74,6 +77,8 @@ class TCPRequestHandler(Thread):
                 if item == ip:
                     return key
 
+    # Atualiza a lista dos vizinhos do nodo, enviando uma mensage, e caso alguma stream esteja a decorrer,
+    # atualiza os forwards dos nodos para a nova configuração da rede (CASO DE ADICIONAR NODOS)
     def updateNeighbours(self):
         alias = self.get_alias_by_ip(self.client_address[0])
         # Caso inicial em que nada esta connectado
@@ -83,7 +88,7 @@ class TCPRequestHandler(Thread):
         else:
             shortest = self.graph.getShortestPath(alias, "Servidor")
             node = None
-            # Diz qual é o nomo mais proximo do bootstrap no caminho entre o ip e o bootstrap
+            # Diz qual é o nomo mais proximo do Servidor no caminho entre o ip e o Servidor
             for ele in shortest:
                 if ele in self.ottNetwork.keys():
                     node = ele
@@ -100,16 +105,20 @@ class TCPRequestHandler(Thread):
                         self.sendUpdate(neigh)
             self.sendUpdate(alias)
             self.sendUpdate(node)
-            # So manda para o node caso este não seja o bootstrap
         print(self.ottNetwork)
+        # Atualizar forwards em caso de ja haver uma stream a correr
+        for ele in self.streamingTo:
+            if alias in self.graph.getShortestPath("Servidor", ele):
+                self.updateForwardsOnAdd(ele,alias)
 
-    # Caso que trata do disconnect de nodos
+    # Atualiza a lista dos vizinhos do nodo, enviando uma mensage, e caso alguma stream esteja a decorrer,
+    # atualiza os forwards dos nodos para a nova configuração da rede (CASO DE REMOVER NODOS)
     def removeNeighbours(self):
         alias = self.get_alias_by_ip(self.client_address[0])
         neighbours = [item for item in self.ottNetwork[alias]]
         for neigh in neighbours:
             path = self.graph.getShortestPath(neigh, "Servidor")
-            # Caso em que o vizinho esta no caminho mais curto para o Bootstrap
+            # Caso em que o vizinho esta no caminho mais curto para o Servidor
             if alias in path:
                 for ele in path[1:]:
                     if ele in self.ottNetwork.keys() and ele != alias:
@@ -125,13 +134,22 @@ class TCPRequestHandler(Thread):
         self.ottNetwork.pop(alias, None)
         self.connections.pop(alias, None)
         print(self.ottNetwork)
+        # Atualizar forwards em caso de ja haver uma stream a correr
+        i = 0
+        for ele in self.streamingTo:
+            if alias in self.graph.getShortestPath("Servidor", ele):
+                if i == 0:
+                    self.updateForwardsOnRemove(ele,alias)
+                    i += 1
+                else:
+                    self.createForwards(self.alias[ele][0])
 
     def sendUpdate(self, alias):
         # path = self.graph.getShortestPath(alias, "Bootstrap")
         # before = list(filter(None, [self.alias[i][0] if i != "Bootstrap" else "Bootstrap" if i in self.ottNetwork[alias] else None for i in path[1:]]))
         data = [self.alias[i][0] for i in self.ottNetwork[alias]]
         # Codifica para bytes com cada ip separado por ;
-        message = bytes("neighbours|" + ";".join(data), "utf-8")
+        message = bytes("neighbours|" + ";".join(data)+" ", "utf-8")
         self.connections[alias].sendall(message)
 
     def createForwards(self, ip):
@@ -147,7 +165,7 @@ class TCPRequestHandler(Thread):
             self.sendForwardUpdate(origin, dest)
 
     def sendForwardUpdate(self, origin, forward):
-        message = bytes("forward|" + self.alias[forward][0], "utf-8")
+        message = bytes("forward|" + self.alias[forward][0]+" ", "utf-8")
         self.connections[origin].sendall(message)
 
     def removeForwards(self, ip):
@@ -178,11 +196,46 @@ class TCPRequestHandler(Thread):
             dest = removed_path[i]
             origin = removed_path[i - 1]
             self.removeForwardsUpdate(dest, origin)
+        self.streamingTo.remove(alias)
 
     def removeForwardsUpdate(self, dest, origin):
-        message = bytes("remove|" + self.alias[dest][0], "utf-8")
+        message = bytes("remove|" + self.alias[dest][0]+" ", "utf-8")
         self.connections[origin].sendall(message)
 
+    def updateForwardsOnAdd(self,alias, new):
+        caminho = self.graph.getShortestPath("Servidor", alias)
+        path = []
+        for ele in caminho:
+            if ele in self.ottNetwork.keys():
+                path.append(ele)
+        path_bafore = []
+        for ele in caminho:
+            if ele == new:
+                path.remove(ele)
+                break
+            path_bafore.append(ele)
+            path.remove(ele)
+        self.updateForwardsUpdate(path_bafore[len(path_bafore)-1],path[0],new)
+        self.sendForwardUpdate(new,path[0])
+
+    def updateForwardsOnRemove(self,alias, old):
+        caminho = self.graph.getShortestPath("Servidor", alias)
+        path = []
+        for ele in caminho:
+            if ele in self.ottNetwork.keys() or ele == old:
+                path.append(ele)
+        path_bafore = []
+        for ele in caminho:
+            if ele == old:
+                path.remove(ele)
+                break
+            path_bafore.append(ele)
+            path.remove(ele)
+        self.updateForwardsUpdate(path_bafore[len(path_bafore)-1],old,path[0])
+
+    def updateForwardsUpdate(self,alias,old,new):
+        message = bytes("update|" + self.alias[old][0]+";"+self.alias[new][0]+" ", "utf-8")
+        self.connections[alias].sendall(message)
 
 class OttBootstrap:
     def __init__(self, file):
@@ -194,6 +247,7 @@ class OttBootstrap:
         self.tcpSocket = s.socket(s.AF_INET, s.SOCK_STREAM)
         self.read_config_file(file)
         self.graph = Graph(len(self.network.keys()))
+        self.streamingTo = set()
         for key in self.network.keys():
             for ele in self.network[key]:
                 self.graph.add_edge(key, ele)
@@ -216,7 +270,7 @@ class OttBootstrap:
             connection, client_address = self.tcpSocket.accept()
             worker = TCPRequestHandler(self.connections, self.lock, self.network, self.alias, self.ottNetwork,
                                        self.tcpSocket, self.graph,
-                                       connection, client_address)
+                                       connection, client_address, self.streamingTo)
             worker.start()
 
 
