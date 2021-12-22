@@ -68,14 +68,17 @@ class ClienteGUI:
         self.tcpSocket.sendall(b"Stream")
 
     def exitClient(self):
-        self.tcpSocket.sendall(b"Stop")
-        self.tcpSocket.close()
+        if self.tcpSocket:
+            self.tcpSocket.sendall(b"Stop")
+            self.tcpSocket.close()
+            os.remove(os.path.expanduser('~') + "/" + CACHE_FILE_NAME +
+                      str(self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
         self.master.destroy()  # Close the gui window
-        os.remove(os.path.expanduser('~') + "/" + CACHE_FILE_NAME + str(
-            self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
 
     def pauseMovie(self):
         self.playEvent.set()
+        os.remove(os.path.expanduser('~') + "/" + CACHE_FILE_NAME + str(
+            self.sessionId) + CACHE_FILE_EXT)  # Delete the cache image from video
 
     def playMovie(self):
         """Play button handler."""
