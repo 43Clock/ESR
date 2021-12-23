@@ -89,6 +89,7 @@ class Servidor:
     def closeConnection(self):
         self.clientInfo["tcpSocket2"].sendall(b"DisconnectStreaming")
         self.clientInfo["tcpSocket2"].close()
+        self.clientInfo["tcpSocket"].close()
 
     def main(self):
 

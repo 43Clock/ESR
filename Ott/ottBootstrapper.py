@@ -48,7 +48,10 @@ class TCPRequestHandler(Thread):
                 self.removeNeighbours()
             # Caso em que o servidor de streaming se disconecta
             elif received == "DisconnectStreaming":
-                self.connections.pop(self.get_alias_by_ip(self.client_address[0]), None)
+                active_connection = [ele for ele in self.streamingTo]
+                for ele in active_connection:
+                    self.removeForwards(self.alias[ele][0])
+                self.connection.close()
             self.lock.release()
             # Para de ouvir quando acaba a conecção
             if received == "Disconnect" or received == "DisconnectStreaming":
